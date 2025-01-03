@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "id": "neocraft",
+  "version": "${version}",
+  "name": "NeoCraft",
+  "description": "",
+  "authors": ["Villagerzock"],
+  "contact": {},
+  "license": "All-Rights-Reserved",
+  "icon": "assets/neocraft/icon.png",
+  "environment": "server",
+  "entrypoints": {
+    "main": [
+      "net.villagerzock.neocraft.Neocraft"
+    ]
+  },
+  "mixins": [
+    "neocraft.mixins.json"
+  ],
+  "depends": {
+    "fabricloader": ">=${loader_version}",
+    "fabric": "*",
+    "minecraft": "${minecraft_version}"
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "net.villagerzock.neocraft.mixins",
+  "compatibilityLevel": "JAVA_21",
+  "mixins": [
+    "ServerPlayerEntityMixin",
+    "StringHelperMixin",
+    "VillagerEntityMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}
