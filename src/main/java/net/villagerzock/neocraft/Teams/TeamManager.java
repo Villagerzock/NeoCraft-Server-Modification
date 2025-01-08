@@ -24,6 +24,7 @@ import net.minecraft.util.function.ValueLists;
 import net.minecraft.util.math.BlockPos;
 import net.villagerzock.neocraft.Neocraft;
 import net.villagerzock.neocraft.PlayerAccessor;
+import net.villagerzock.neocraft.config.Config;
 
 import java.io.*;
 import java.util.*;
@@ -103,6 +104,7 @@ public class TeamManager {
         object.add("display_name",gson.toJsonTree(TextCodecs.CODEC.encodeStart(JsonOps.INSTANCE,displayName).getOrThrow()));
         object.addProperty("uuid",this.owner.toString());
         object.addProperty("maxClaims",maxClaims);
+        object.add("settings",this.settings.serialize());
         return object;
     }
     public static TeamManager deserialize(JsonObject object,String id){
@@ -111,9 +113,20 @@ public class TeamManager {
                 decode(JsonOps.INSTANCE,object.get("display_name"))
                 .getOrThrow()
                 .getFirst();
+        System.out.println("Amount of Banned Names: " + Config.BANNED_NAMES.size());
+        for (Config.StringConfig config : Config.BANNED_NAMES){
+            String s = config.get();
+            System.out.println("Checking for Banned Name: " + s);
+            if (displayName.getString().toLowerCase().contains(s.toLowerCase())){
+                displayName = Text.literal("§cBANNED NAME");
+                System.out.println("Found Banned Name: " + s);
+            }
+
+        }
         UUID uuid = UUID.fromString(object.get("uuid").getAsString());
         int maxClaims = object.get("maxClaims").getAsInt();
         TeamManager manager = new TeamManager(displayName,id,uuid);
+        manager.settings.deserialize(object.get("settings"));
         manager.maxClaims = maxClaims;
         return manager;
     }
@@ -141,8 +154,8 @@ public class TeamManager {
             if (created){
                 System.out.println("Created Files");
             }
-            save();
         }
+        save();
     }
 
     public static void save(){
@@ -211,6 +224,15 @@ public class TeamManager {
         public boolean attack_entities = false;
         public boolean interact_entities = false;
         public Settings(){}
+        public JsonElement serialize(){
+            JsonObject object = new JsonObject();
+            object.addProperty("interact_with_entities",interact_entities);
+            return object;
+        }
+        public void deserialize(JsonElement element){
+            JsonObject object = element.getAsJsonObject();
+            this.interact_entities = object.get("interact_with_entities").getAsBoolean();
+        }
     }
     public enum Setting{
         EVERYONE(Text.literal("Jeder"),0),

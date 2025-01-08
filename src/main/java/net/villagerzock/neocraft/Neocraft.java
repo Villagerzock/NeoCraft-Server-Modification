@@ -1,7 +1,17 @@
 package net.villagerzock.neocraft;
 
+import com.flowpowered.math.vector.Vector2d;
+import com.technicjelle.BMUtils.Cheese;
+import de.bluecolored.bluemap.api.BlueMapAPI;
+import de.bluecolored.bluemap.api.BlueMapMap;
+import de.bluecolored.bluemap.api.markers.ExtrudeMarker;
+import de.bluecolored.bluemap.api.markers.MarkerSet;
+import de.bluecolored.bluemap.api.markers.ShapeMarker;
+import de.bluecolored.bluemap.api.math.Color;
+import de.bluecolored.bluemap.api.math.Shape;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
+import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.fabricmc.fabric.api.event.player.AttackEntityCallback;
 import net.fabricmc.fabric.api.event.player.UseEntityCallback;
@@ -11,44 +21,111 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.text.MutableText;
 import net.minecraft.text.Text;
+import net.minecraft.text.TextContent;
 import net.minecraft.util.ActionResult;
+import net.minecraft.util.math.ChunkPos;
+import net.minecraft.world.World;
 import net.villagerzock.neocraft.Teams.ChunkManager;
 import net.villagerzock.neocraft.Teams.Configuration;
 import net.villagerzock.neocraft.Teams.TeamManager;
 import net.villagerzock.neocraft.config.Config;
 import org.joml.Vector2i;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 public class Neocraft implements ModInitializer {
     public static final String MODID = "neocraft";
     private static final Map<ServerPlayerEntity, Vector2i> currentChunk = new HashMap<>();
+    public static BlueMapAPI blueMapAPI;
+    public static MinecraftServer server;
+    public static MarkerSet markerSet = MarkerSet.builder()
+            .label("Claimed Chunks")
+            .build();
+    private static Map<String,List<ChunkPos>> shapesChunks = new HashMap<>();
+    public static final Logger logger = LoggerFactory.getLogger(MODID);
 
     @Override
     public void onInitialize() {
+        //Initialize BlueMap Plugin
+        BlueMapAPI.onEnable(blueMapAPI -> {
+            Neocraft.blueMapAPI = blueMapAPI;
+            //Static Loading Managers
+            TeamManager.staticLoad();
+            ChunkManager.staticLoad(server);
+            Config.staticLoad();
+        });
+
         System.out.println("Main");
         //Registering Registries
         Configuration.staticLoad();
         //Registering Events
+        ServerLifecycleEvents.SERVER_STARTED.register(minecraftServer -> {
+            server = minecraftServer;
+        });
         CommandRegistrationCallback.EVENT.register(Commands::registerCommands);
         ServerTickEvents.END_SERVER_TICK.register(Neocraft::PlayerTick);
         AttackEntityCallback.EVENT.register(((playerEntity, world, hand, entity, entityHitResult) -> {
-            return getResult(playerEntity,ChunkManager.getOwnedManager(playerEntity.getChunkPos()).getSettings().attack_entities);
+            return getResult(world,playerEntity,ChunkManager.getOwnedManager(world,playerEntity.getChunkPos()).getSettings().attack_entities);
         }));
         UseEntityCallback.EVENT.register((playerEntity, world, hand, entity, entityHitResult) -> {
 
-            return getResult(playerEntity,ChunkManager.getOwnedManager(playerEntity.getChunkPos()).getSettings().interact_entities);
+            return getResult(world,playerEntity,ChunkManager.getOwnedManager(world,playerEntity.getChunkPos()).getSettings().interact_entities);
         });
-        //Static Loading Managers
-        TeamManager.staticLoad();
-        ChunkManager.staticLoad();
-        Config.staticLoad();
 
     }
-    private static ActionResult getResult(PlayerEntity playerEntity, boolean bool){
-        if (ChunkManager.getOwnedManager(playerEntity.getChunkPos()) == null){
+    public static void addMarkerForChunk(ChunkPos pos, String team, ChunkManager.ChunkData data){
+        if (!shapesChunks.containsKey(team)){
+            shapesChunks.put(team,new ArrayList<>());
+        }
+        shapesChunks.get(team).add(pos);
+
+        com.flowpowered.math.vector.Vector2i[] chunkCoordinates = new com.flowpowered.math.vector.Vector2i[shapesChunks.get(team).size()];
+        for (int i = 0; i < chunkCoordinates.length; i++) {
+            chunkCoordinates[i] = new com.flowpowered.math.vector.Vector2i(shapesChunks.get(team).get(i).x,shapesChunks.get(team).get(i).z);
+        }
+        Collection<Cheese> cheeses = Cheese.createPlatterFromChunks(chunkCoordinates);
+        Shape.Builder shape;
+        int i = 0;
+        for (Cheese cheese : cheeses){
+            ExtrudeMarker extrudeMarker = ExtrudeMarker.builder()
+                    .label(TeamManager.get(team).getDisplayName().getString() + " " + i)
+                    .fillColor(new Color(17,160,255,100f / 255f))
+                    .lineColor(new Color(17,160,255))
+                    .lineWidth(2)
+                    .shape(cheese.getShape(),-64f,319f)
+                    .holes(cheese.getHoles().toArray(Shape[]::new))
+                    .build();
+            extrudeMarker.setDetail(getTextAsHTML(TeamManager.get(team).getDisplayName()));
+            System.out.println(getTextAsHTML(TeamManager.get(team).getDisplayName()));
+            markerSet.getMarkers().put(team,extrudeMarker);
+        }
+
+
+
+
+        blueMapAPI.getWorld(data.world).ifPresent(blueMapWorld -> {
+            for (BlueMapMap map : blueMapWorld.getMaps()){
+                map.getMarkerSets().put("claimed-chunks",markerSet);
+            }
+        });
+    }
+    private static String getTextAsHTML(Text text){
+        StringBuilder detail = new StringBuilder();
+        System.out.println("Amount of Sibling:" + text.getWithStyle(text.getStyle()));
+        List<Text> texts = new ArrayList<>();
+        texts.add(text);
+        texts.addAll(MutableText.of(text.getContent()).getSiblings());
+
+        for (Text childText : texts){
+            String Color = childText.getStyle().getColor() == null ? "#ffffff" : childText.getStyle().getColor().getHexCode();
+            detail.append("<span style='color:").append(Color).append(";'>").append(childText.getString()).append("</span>");
+        }
+        return detail.toString();
+    }
+    private static ActionResult getResult(World world, PlayerEntity playerEntity, boolean bool){
+        if (ChunkManager.getOwnedManager(world,playerEntity.getChunkPos()) == null){
             System.out.println("Chunk Pos");
             return ActionResult.PASS;
         }
@@ -61,9 +138,9 @@ public class Neocraft implements ModInitializer {
         if (player.hasPermissionLevel(4)){
             return false;
         }
-        if (TeamManager.TEAMS.containsKey(ChunkManager.getOwner(ChunkManager.convert(player.getChunkPos())))){
+        if (TeamManager.TEAMS.containsKey(ChunkManager.getOwner(player.getWorld(),ChunkManager.convert(player.getChunkPos())))){
             if (player instanceof PlayerAccessor accessor){
-                return !accessor.getTeam().equals(ChunkManager.getOwner(ChunkManager.convert(player.getChunkPos())));
+                return !accessor.getTeam().equals(ChunkManager.getOwner(player.getWorld(),ChunkManager.convert(player.getChunkPos())));
             }
         }
         return false;
@@ -79,21 +156,6 @@ public class Neocraft implements ModInitializer {
                 }
             }
             currentChunk.put(p,vec);
-
-            if (p instanceof PlayerAccessor playerAccessor){
-                String team = playerAccessor.getTeam();
-                if (TeamManager.TEAMS.containsKey(team)){
-                    TeamManager manager = TeamManager.TEAMS.get(team);
-                    Text displayName = manager.getDisplayName();
-                    Text playerName = p.getName();
-
-                    Text customName = Text.empty().append(displayName).append(Text.literal(" §8|§r ")).append(playerName);
-
-                    playerAccessor.setDisplayName(customName);
-                }else {
-                    playerAccessor.setDisplayName(p.getName());
-                }
-            }
         }
     }
     private static MutableText footer;
@@ -121,10 +183,10 @@ public class Neocraft implements ModInitializer {
         }
     }
     private static void PlayerChangedChunk(ServerPlayerEntity player, MinecraftServer server, Vector2i oldChunk, Vector2i newChunk){
-        if (!ChunkManager.isSame(oldChunk,newChunk)){
-            String team = ChunkManager.getOwner(newChunk);
+        if (!ChunkManager.isSame(player.getWorld(),oldChunk,newChunk)){
+            TeamManager team = ChunkManager.getOwnedManager(player.getWorld(),ChunkManager.convert(newChunk));
             Text text;
-            if (team == ""){
+            if (team == TeamManager.WILDERNESS){
                 text = Text.literal("§2Du bist jetzt in der Wildnis");
             }else {
                 text = Text.literal("§2Du bist jetzt im bereich von ").append(TeamManager.TEAMS.get(team).getDisplayName());

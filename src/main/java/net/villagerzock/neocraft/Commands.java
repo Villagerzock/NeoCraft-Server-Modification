@@ -6,6 +6,7 @@ import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import net.minecraft.command.CommandRegistryAccess;
 import net.minecraft.command.EntitySelector;
+import net.minecraft.command.argument.ColumnPosArgumentType;
 import net.minecraft.command.argument.EntityArgumentType;
 import net.minecraft.command.argument.TextArgumentType;
 import net.minecraft.entity.player.PlayerEntity;
@@ -19,11 +20,14 @@ import net.minecraft.text.Style;
 import net.minecraft.text.Text;
 import net.minecraft.util.Identifier;
 import net.minecraft.util.math.ChunkPos;
+import net.minecraft.util.math.ColumnPos;
 import net.villagerzock.neocraft.Teams.*;
 import net.villagerzock.neocraft.config.Config;
 import org.joml.Vector2i;
 
 import java.util.Optional;
+
+import static net.villagerzock.neocraft.Neocraft.logger;
 
 public class Commands {
     public static void registerCommands(CommandDispatcher<ServerCommandSource> dispatcher, CommandRegistryAccess commandRegistryAccess, CommandManager.RegistrationEnvironment registrationEnvironment) {
@@ -37,17 +41,13 @@ public class Commands {
                                 ConfigureHandler.build(dispatcher,commandRegistryAccess,registrationEnvironment)
                         ).then(
                                 CommandManager.literal("claim").executes(Commands::claim)
-                                        .then(CommandManager.argument("team",StringArgumentType.word()).requires(serverCommandSource -> {
+                                        .then(CommandManager.argument("from", ColumnPosArgumentType.columnPos()).requires(serverCommandSource -> {
                                             return serverCommandSource.hasPermissionLevel(2);
-                                        }).executes((commandContext -> {
-                                            ChunkPos pos = commandContext.getSource().getPlayer().getChunkPos();
-                                            Vector2i chunk = new Vector2i(pos.x,pos.z);
-
-                                            String team = commandContext.getArgument("team",String.class);
-
-                                            ChunkManager.claim(chunk,team);
-                                            return 0;
-                                        }))
+                                        })
+                                                .then(CommandManager.argument("to",ColumnPosArgumentType.columnPos()).requires(serverCommandSource -> {
+                                                            return serverCommandSource.hasPermissionLevel(2);
+                                                        }).executes(Commands::operatorClaim)
+                                                        )
                                 )
                         ).then(
                                 CommandManager.literal("get")
@@ -103,7 +103,25 @@ public class Commands {
         );
     }
 
+    private static int operatorClaim(CommandContext<ServerCommandSource> serverCommandSourceCommandContext) {
+        ColumnPos from = ColumnPosArgumentType.getColumnPos(serverCommandSourceCommandContext,"from");
+        ColumnPos to = ColumnPosArgumentType.getColumnPos(serverCommandSourceCommandContext,"to");
+        int distX = Math.abs(from.x() - to.x());
+        int distZ = Math.abs(from.z() - to.z());
+        for (int i = 0; i < distX; i++) {
+            int X = from.x() + i;
+            for (int z = 0; z < distZ; z++) {
+                int Z = from.z() + z;
+                System.out.println("Claiming at Position: [" + X +", " + Z + "]");
+                ChunkManager.claim(new Vector2i(X,Z),serverCommandSourceCommandContext.getSource().getPlayer(),true);
+            }
+        }
+        serverCommandSourceCommandContext.getSource().sendMessage(Text.literal("§2Du hast nun alle Chunks von " + from + " bis " + to + " geclaimed"));
+        return 0;
+    }
+
     public static int leave(CommandContext<ServerCommandSource> serverCommandSourceCommandContext) {
+
         ServerPlayerEntity player = serverCommandSourceCommandContext.getSource().getPlayer();
         if (player instanceof PlayerAccessor accessor){
             accessor.setTeam("");
@@ -192,19 +210,7 @@ public class Commands {
             ChunkPos pos = serverCommandSourceCommandContext.getSource().getPlayer().getChunkPos();
             Vector2i chunk = new Vector2i(pos.x,pos.z);
             ServerPlayerEntity player = serverCommandSourceCommandContext.getSource().getPlayer();
-
-            switch (ChunkManager.claim(chunk,player)){
-                case NOT_ENOUGHT_CLAIMS:
-                    serverCommandSourceCommandContext.getSource().sendError(Text.literal("Dein Team hat keine Claims mehr übrig"));
-                    break;
-                case SUCCESS:
-                    serverCommandSourceCommandContext.getSource().sendMessage(Text.literal("§2Dieser Chunk gehört nun dir, " + getRemainingClaims(player) + " verbleibend"));
-                    break;
-                case ALREADY_CLAIMED:
-                    break;
-                case ALREADY_YOURS:
-                    break;
-            }
+            sendClaimMessage(serverCommandSourceCommandContext,ChunkManager.claim(chunk,player,false));
             return 0;
         }catch (Exception e){
             e.printStackTrace();
@@ -227,6 +233,22 @@ public class Commands {
             serverCommandSourceCommandContext.getSource().sendMessage(Text.literal("§2der Displayname wurde zu §r").append(text).append(Text.literal("§2 geändert")));
         }
         return 0;
+    }
+
+    public static void sendClaimMessage(CommandContext<ServerCommandSource> serverCommandSourceCommandContext, ClaimResult result) throws Exception{
+
+        switch (result){
+            case NOT_ENOUGHT_CLAIMS:
+                serverCommandSourceCommandContext.getSource().sendError(Text.literal("Dein Team hat keine Claims mehr übrig"));
+                break;
+            case SUCCESS:
+                serverCommandSourceCommandContext.getSource().sendMessage(Text.literal("§2Dieser Chunk gehört nun dir, " + getRemainingClaims(serverCommandSourceCommandContext.getSource().getPlayer()) + " verbleibend"));
+                break;
+            case ALREADY_CLAIMED:
+                break;
+            case ALREADY_YOURS:
+                break;
+        }
     }
 
     public static int createTeam(CommandContext<ServerCommandSource> serverCommandSourceCommandContext) {

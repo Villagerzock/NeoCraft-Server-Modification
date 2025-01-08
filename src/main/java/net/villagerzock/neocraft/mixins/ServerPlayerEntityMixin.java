@@ -6,6 +6,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.mojang.serialization.JsonOps;
 import net.minecraft.entity.player.PlayerEntity;
+import net.minecraft.entity.player.PlayerInventory;
 import net.minecraft.nbt.NbtCompound;
 import net.minecraft.scoreboard.Scoreboard;
 import net.minecraft.scoreboard.Team;
@@ -15,7 +16,9 @@ import net.minecraft.text.Text;
 import net.minecraft.text.TextCodecs;
 import net.minecraft.util.Identifier;
 import net.villagerzock.neocraft.PlayerAccessor;
+import net.villagerzock.neocraft.Teams.ChunkManager;
 import net.villagerzock.neocraft.Teams.TeamManager;
+import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
@@ -27,6 +30,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 public abstract class ServerPlayerEntityMixin implements PlayerAccessor {
     @Shadow public abstract Text getName();
 
+    @Shadow @Final private PlayerInventory inventory;
     public String team = "";
     public Text displayName = Text.empty();
     @Override
@@ -40,6 +44,7 @@ public abstract class ServerPlayerEntityMixin implements PlayerAccessor {
         TeamManager oldTeam = TeamManager.get(team);
         newTeam.join();
         oldTeam.leave();
+        ChunkManager.ChangeTeam( ((PlayerEntity) (Object)this),name);
         team = name;
     }
 
@@ -81,15 +86,5 @@ public abstract class ServerPlayerEntityMixin implements PlayerAccessor {
             displayName = getName();
         }
         nbt.putString("displayName",gson.toJson(TextCodecs.CODEC.encodeStart(JsonOps.INSTANCE,displayName).getOrThrow()));
-    }
-    @Inject(method = "getDisplayName",cancellable = true,at = @At(value = "RETURN"))
-    public void getDisplayName(CallbackInfoReturnable<Text> cir){
-        Text baseValue = cir.getReturnValue();
-        Text result = displayName;
-        if (result == Text.empty()){
-            cir.setReturnValue(baseValue);
-        }else {
-            cir.setReturnValue(result);
-        }
     }
 }
