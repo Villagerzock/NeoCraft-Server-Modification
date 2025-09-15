@@ -34,7 +34,7 @@ public abstract class VillagerEntityMixin extends MerchantEntity {
     public void tick(CallbackInfo ci){
         boolean cancel = true;
         for (PlayerEntity player : this.getWorld().getPlayers()){
-            if (performanceDistanceTo(player,Config.VILLAGER_DISTANCE.get())) {
+            if (performanceDistanceTo(player, net.villagerzock.neocraft.config.Config.VILLAGER_DISTANCE.get())) {
                 cancel = false;
                 break;
             }

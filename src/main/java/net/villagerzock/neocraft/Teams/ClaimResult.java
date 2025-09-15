@@ -4,6 +4,7 @@ public enum ClaimResult {
     SUCCESS,
     ALREADY_CLAIMED,
     ALREADY_YOURS,
-    NOT_ENOUGHT_CLAIMS
+    NOT_ENOUGHT_CLAIMS,
+    ERROR_OCCURED
     ;
 }

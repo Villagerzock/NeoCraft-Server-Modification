@@ -27,6 +27,7 @@ public abstract class Config<T> implements BetterCloneable<Config<T>> {
     public static FloatConfig VILLAGER_DISTANCE = register(new FloatConfig(16f,Identifier.of(Neocraft.MODID,"villager_distance")));
     public static ArrayConfig<StringConfig> BANNED_NAMES = register(new ArrayConfig<StringConfig>(new ArrayList<>(),Identifier.of(Neocraft.MODID,"banned_names"),new StringConfig("",null)));
     public static StringConfig COMMAND_NAME = register(new StringConfig("neocraft",Identifier.of(Neocraft.MODID,"command_name")));
+    public static StringConfig CHAT_MESSAGE_WEBHOOK = register(new StringConfig("https://discord.com/api/webhooks/1330628996492296244/GkZVuZ0v-xG9ulcZyfgLR66VVCILjVUwlvh47ebiVMLVQmrTFWATssCbmS-vApWq_ywa",Identifier.of(Neocraft.MODID,"chat_message_webhook")));
 
     protected final Identifier id;
     protected T value;
@@ -84,12 +85,11 @@ public abstract class Config<T> implements BetterCloneable<Config<T>> {
         }
     }
     public static void staticLoad(){
-
+        load();
     }
     static {
         CONFIGPATH = FabricLoader.getInstance().getConfigDir().toFile();
         CONFIGFILE = new File(CONFIGPATH,"neocraft.json");
-        load();
     }
 
     public static class IntegerConfig extends Config<Integer>{

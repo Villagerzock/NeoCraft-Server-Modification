@@ -48,52 +48,66 @@ public class ChunkManager {
 
     public static int getAmountOfClaimedChunks(PlayerEntity player){
         AtomicInteger amount = new AtomicInteger();
-        chunkClaims.forEach((vector2i, chunkData) -> {
-            chunkData.forEach((vector2i1, data) -> {
-                if (player instanceof PlayerAccessor accessor){
-                    if (data.owningTeam == accessor.getTeam())
-                        amount.getAndIncrement();
-                }
+        try {
+            chunkClaims.forEach((vector2i, chunkData) -> {
+                chunkData.forEach((vector2i1, data) -> {
+                    if (player instanceof PlayerAccessor accessor){
+                        if (data.getOwningTeam() == accessor.getTeam())
+                            amount.getAndIncrement();
+                    }
+                });
             });
-        });
+        }catch (Throwable t){
+            t.printStackTrace();
+        }
         return amount.get();
     }
     public static ClaimResult claim(Vector2i chunk, PlayerEntity player,boolean force){
-
-        if (player instanceof PlayerAccessor accessor){
-            if (force){
-                ChunkData data = new ChunkData(accessor.getTeam(),player.getUuid(), player.getWorld());
-                chunkClaims.get(player.getWorld()).put(chunk,data);
-                System.out.println("Forcing Claim");
-                save();
-                return ClaimResult.SUCCESS;
-            }
-            TeamManager manager = accessor.getTeamManager();
-            if (manager.maxClaims * Config.CLAIMS_PER_PERSON.get() <= getAmountOfClaimedChunks(player))
-                return ClaimResult.NOT_ENOUGHT_CLAIMS;
-            if (chunkClaims.get(player.getWorld()).containsKey(chunk)) {
-                if (chunkClaims.get(player.getWorld()).get(chunk).owningTeam == accessor.getTeam()){
-                    return ClaimResult.ALREADY_YOURS;
+        try{
+            if (player instanceof PlayerAccessor accessor){
+                if (force){
+                    ChunkData data = new ChunkData(player.getUuid(), player.getWorld());
+                    chunkClaims.get(player.getWorld()).put(chunk,data);
+                    System.out.println("Forcing Claim");
+                    save();
+                    return ClaimResult.SUCCESS;
                 }
-                return ClaimResult.ALREADY_CLAIMED;
+                TeamManager manager = accessor.getTeamManager();
+                if (manager.maxClaims * Config.CLAIMS_PER_PERSON.get() <= getAmountOfClaimedChunks(player))
+                    return ClaimResult.NOT_ENOUGHT_CLAIMS;
+                if (chunkClaims.get(player.getWorld()).containsKey(chunk)) {
+                    if (chunkClaims.get(player.getWorld()).get(chunk).getOwningTeam() == accessor.getTeam()){
+                        return ClaimResult.ALREADY_YOURS;
+                    }
+                    return ClaimResult.ALREADY_CLAIMED;
+                }
+                ChunkData data = new ChunkData(player.getUuid(), player.getWorld());
+                chunkClaims.get(player.getWorld()).put(chunk,data);
+                Neocraft.addMarkerForChunk(convert(chunk),data.getOwningTeam(),data);
+                save();
             }
-            ChunkData data = new ChunkData(accessor.getTeam(),player.getUuid(), player.getWorld());
-            chunkClaims.get(player.getWorld()).put(chunk,data);
-            Neocraft.addMarkerForChunk(convert(chunk),data.owningTeam,data);
-            save();
+        }catch (Throwable t){
+            t.printStackTrace();
+            return ClaimResult.ERROR_OCCURED;
         }
         return ClaimResult.SUCCESS;
     }
 
     public static boolean isSame(World world,Vector2i oldChunk, Vector2i newChunk){
-        if (!chunkClaims.get(world).containsKey(oldChunk) && !chunkClaims.get(world).containsKey(newChunk))
-            return true;
-        if (!chunkClaims.get(world).containsKey(oldChunk))
-            return false;
-        if (!chunkClaims.get(world).containsKey(newChunk))
-            return false;
+        try {
+            if (!chunkClaims.get(world).containsKey(oldChunk) && !chunkClaims.get(world).containsKey(newChunk))
+                return true;
+            if (!chunkClaims.get(world).containsKey(oldChunk))
+                return false;
+            if (!chunkClaims.get(world).containsKey(newChunk))
+                return false;
 
-        return chunkClaims.get(world).get(newChunk).owningTeam.equals(chunkClaims.get(world).get(oldChunk).owningTeam);
+            return chunkClaims.get(world).get(newChunk).getOwningTeam().equals(chunkClaims.get(world).get(oldChunk).getOwningTeam());
+        }catch (Throwable t){
+            t.printStackTrace();
+            return false;
+        }
+
     }
     public static Vector2i convert(ChunkPos chunkPos){
         return new Vector2i(chunkPos.x,chunkPos.z);
@@ -103,28 +117,21 @@ public class ChunkManager {
     }
     public static String getOwner(World world,Vector2i chunk){
         if (chunkClaims.containsKey(chunk)){
-            if (TeamManager.get(chunkClaims.get(world).get(chunk).owningTeam) == TeamManager.WILDERNESS){
+            if (TeamManager.get(chunkClaims.get(world).get(chunk).getOwningTeam()) == TeamManager.WILDERNESS){
                 server.getPlayerManager().getPlayer(chunkClaims.get(world).get(chunk).owningPlayer).getDisplayName();
             }
-            return chunkClaims.get(world).get(chunk).owningTeam;
+            return chunkClaims.get(world).get(chunk).getOwningTeam();
         }else {
             return "";
         }
     }
     public static TeamManager getOwnedManager(World world,ChunkPos pos){
-        if (TeamManager.TEAMS.containsKey(getOwner(world,convert(pos)))){
-            return TeamManager.TEAMS.get(getOwner(world,convert(pos)));
+        if (chunkClaims.containsKey(world) && chunkClaims.get(world).containsKey(pos)){
+            return ((PlayerAccessor)(chunkClaims.get(world).get(pos).getOwner())).getTeamManager();
         }
         return TeamManager.WILDERNESS;
     }
     public static void ChangeTeam(PlayerEntity player, String newTeam){
-        chunkClaims.forEach((world, vector2iChunkDataMap) -> {
-            vector2iChunkDataMap.forEach((vector2i, data) -> {
-                if (data.owningPlayer == player.getUuid()){
-                    data.owningTeam = newTeam;
-                }
-            });
-        });
     }
 
     public static void load() {
@@ -135,12 +142,11 @@ public class ChunkManager {
                 for (int i = 0; i < array.size(); i++) {
                     JsonObject object = array.get(i).getAsJsonObject();
                     Vector2i chunk = new Vector2i(object.get("chunk").getAsJsonArray().get(0).getAsInt(), object.get("chunk").getAsJsonArray().get(1).getAsInt());
-                    String team = object.get("team").getAsString();
                     UUID player = UUID.fromString(object.get("player").getAsString());
                     World world = Neocraft.server.getWorld(RegistryKey.of(RegistryKeys.WORLD, Identifier.of(object.get("dim").getAsString())));
-                    ChunkData data = new ChunkData(team,player, world);
+                    ChunkData data = new ChunkData(player, world);
                     chunkClaims.get(world).put(chunk, data);
-                    Neocraft.addMarkerForChunk(convert(chunk),data.owningTeam,data);
+                    Neocraft.addMarkerForChunk(convert(chunk),data.getOwningTeam(),data);
                 }
             } catch (IOException e) {
                 throw new RuntimeException(e);
@@ -168,7 +174,6 @@ public class ChunkManager {
                 chunkVec.add(chunk.x);
                 chunkVec.add(chunk.y);
 
-                object.addProperty("team",team.owningTeam);
                 object.addProperty("player",team.owningPlayer.toString());
                 object.add("chunk",chunkVec);
 
@@ -188,10 +193,19 @@ public class ChunkManager {
         public String owningTeam;
         public final UUID owningPlayer;
         public World world;
-        public ChunkData(String owningTeam, UUID owningPlayer, World world){
-            this.owningTeam = owningTeam;
+        public ChunkData(UUID owningPlayer, World world){
             this.owningPlayer = owningPlayer;
             this.world = world;
+        }
+
+        public String  getOwningTeam() {
+            if (world.getServer().getPlayerManager().getPlayer(owningPlayer) instanceof PlayerAccessor accessor){
+                return accessor.getTeam();
+            }
+            return "";
+        }
+        public PlayerEntity getOwner() {
+            return world.getServer().getPlayerManager().getPlayer(owningPlayer);
         }
     }
 }

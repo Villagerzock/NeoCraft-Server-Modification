@@ -5,6 +5,7 @@ import com.technicjelle.BMUtils.Cheese;
 import de.bluecolored.bluemap.api.BlueMapAPI;
 import de.bluecolored.bluemap.api.BlueMapMap;
 import de.bluecolored.bluemap.api.markers.ExtrudeMarker;
+import de.bluecolored.bluemap.api.markers.Marker;
 import de.bluecolored.bluemap.api.markers.MarkerSet;
 import de.bluecolored.bluemap.api.markers.ShapeMarker;
 import de.bluecolored.bluemap.api.math.Color;
@@ -15,7 +16,10 @@ import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.fabricmc.fabric.api.event.player.AttackEntityCallback;
 import net.fabricmc.fabric.api.event.player.UseEntityCallback;
+import net.fabricmc.fabric.api.message.v1.ServerMessageEvents;
 import net.minecraft.entity.player.PlayerEntity;
+import net.minecraft.network.message.MessageType;
+import net.minecraft.network.message.SignedMessage;
 import net.minecraft.network.packet.s2c.play.OverlayMessageS2CPacket;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.network.ServerPlayerEntity;
@@ -25,6 +29,8 @@ import net.minecraft.text.TextContent;
 import net.minecraft.util.ActionResult;
 import net.minecraft.util.math.ChunkPos;
 import net.minecraft.world.World;
+import net.villagerzock.WebHook.Embed;
+import net.villagerzock.WebHook.EmbedMessage;
 import net.villagerzock.neocraft.Teams.ChunkManager;
 import net.villagerzock.neocraft.Teams.Configuration;
 import net.villagerzock.neocraft.Teams.TeamManager;
@@ -33,6 +39,8 @@ import org.joml.Vector2i;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.IOException;
+import java.net.URL;
 import java.util.*;
 
 public class Neocraft implements ModInitializer {
@@ -40,9 +48,7 @@ public class Neocraft implements ModInitializer {
     private static final Map<ServerPlayerEntity, Vector2i> currentChunk = new HashMap<>();
     public static BlueMapAPI blueMapAPI;
     public static MinecraftServer server;
-    public static MarkerSet markerSet = MarkerSet.builder()
-            .label("Claimed Chunks")
-            .build();
+    public static Map<String,MarkerSet> teamSets = new HashMap<>();
     private static Map<String,List<ChunkPos>> shapesChunks = new HashMap<>();
     public static final Logger logger = LoggerFactory.getLogger(MODID);
 
@@ -66,8 +72,19 @@ public class Neocraft implements ModInitializer {
         });
         CommandRegistrationCallback.EVENT.register(Commands::registerCommands);
         ServerTickEvents.END_SERVER_TICK.register(Neocraft::PlayerTick);
+        ServerMessageEvents.CHAT_MESSAGE.register(Neocraft::playerSentMessage);
         AttackEntityCallback.EVENT.register(((playerEntity, world, hand, entity, entityHitResult) -> {
-            return getResult(world,playerEntity,ChunkManager.getOwnedManager(world,playerEntity.getChunkPos()).getSettings().attack_entities);
+            if (!(entity instanceof PlayerEntity)){
+                return ActionResult.PASS;
+            }
+            if (ChunkManager.getOwnedManager(world,playerEntity.getChunkPos()) == null){
+                System.out.println("Chunk Pos");
+                return ActionResult.PASS;
+            }
+            if (!ChunkManager.getOwnedManager(world,playerEntity.getChunkPos()).settings.friendlyFire){
+                return ActionResult.PASS;
+            }
+            return isClaimed(playerEntity) ? ActionResult.FAIL : ActionResult.PASS;
         }));
         UseEntityCallback.EVENT.register((playerEntity, world, hand, entity, entityHitResult) -> {
 
@@ -75,11 +92,26 @@ public class Neocraft implements ModInitializer {
         });
 
     }
+
+    private static void playerSentMessage(SignedMessage signedMessage, ServerPlayerEntity player, MessageType.Parameters parameters) {
+        try {
+            WebHook webHook = new WebHook(Config.CHAT_MESSAGE_WEBHOOK.get());
+            webHook.sendMessage(new EmbedMessage.Builder().addEmbed(new Embed.Builder().setAuthor(player.getName().getString(),null,null).setBody("Sent A Message",signedMessage.getSignedContent(),null,Embed.YELLOW).build()).build());
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
     public static void addMarkerForChunk(ChunkPos pos, String team, ChunkManager.ChunkData data){
         if (!shapesChunks.containsKey(team)){
             shapesChunks.put(team,new ArrayList<>());
         }
         shapesChunks.get(team).add(pos);
+        if (!teamSets.containsKey(team)){
+            MarkerSet set = MarkerSet.builder().label(team).build();
+            teamSets.put(team,set);
+        }
+        MarkerSet markerSet = teamSets.get(team);
 
         com.flowpowered.math.vector.Vector2i[] chunkCoordinates = new com.flowpowered.math.vector.Vector2i[shapesChunks.get(team).size()];
         for (int i = 0; i < chunkCoordinates.length; i++) {
@@ -96,9 +128,9 @@ public class Neocraft implements ModInitializer {
                     .lineWidth(2)
                     .shape(cheese.getShape(),-64f,319f)
                     .holes(cheese.getHoles().toArray(Shape[]::new))
+                    .depthTestEnabled(true)
                     .build();
             extrudeMarker.setDetail(getTextAsHTML(TeamManager.get(team).getDisplayName()));
-            System.out.println(getTextAsHTML(TeamManager.get(team).getDisplayName()));
             markerSet.getMarkers().put(team,extrudeMarker);
         }
 
@@ -113,7 +145,6 @@ public class Neocraft implements ModInitializer {
     }
     private static String getTextAsHTML(Text text){
         StringBuilder detail = new StringBuilder();
-        System.out.println("Amount of Sibling:" + text.getWithStyle(text.getStyle()));
         List<Text> texts = new ArrayList<>();
         texts.add(text);
         texts.addAll(MutableText.of(text.getContent()).getSiblings());
@@ -134,6 +165,7 @@ public class Neocraft implements ModInitializer {
         }
         return isClaimed(playerEntity) ? ActionResult.FAIL : ActionResult.PASS;
     }
+
     private static boolean isClaimed(PlayerEntity player){
         if (player.hasPermissionLevel(4)){
             return false;
@@ -189,7 +221,7 @@ public class Neocraft implements ModInitializer {
             if (team == TeamManager.WILDERNESS){
                 text = Text.literal("§2Du bist jetzt in der Wildnis");
             }else {
-                text = Text.literal("§2Du bist jetzt im bereich von ").append(TeamManager.TEAMS.get(team).getDisplayName());
+                text = Text.literal("§2Du bist jetzt im bereich von ").append(team.getDisplayName());
             }
             player.networkHandler.sendPacket(new OverlayMessageS2CPacket(text));
         }

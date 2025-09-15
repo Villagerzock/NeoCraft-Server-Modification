@@ -53,16 +53,21 @@ public class TeamManager {
         this.owner = uuid;
     }
     public List<ServerPlayerEntity> findAllMembers(MinecraftServer server){
-        List<ServerPlayerEntity> allPlayers = server.getPlayerManager().getPlayerList();
-        List<ServerPlayerEntity> teamMembers = new ArrayList<>();
-        for (ServerPlayerEntity player : allPlayers){
-            if (player instanceof PlayerAccessor accessor){
-                if (accessor.getTeam() == id){
-                    teamMembers.add(player);
+        try {
+            List<ServerPlayerEntity> allPlayers = server.getPlayerManager().getPlayerList();
+            List<ServerPlayerEntity> teamMembers = new ArrayList<>();
+            for (ServerPlayerEntity player : allPlayers){
+                if (player instanceof PlayerAccessor accessor){
+                    if (accessor.getTeam() == id){
+                        teamMembers.add(player);
+                    }
                 }
             }
+            return teamMembers;
+        }catch (Throwable t){
+            t.printStackTrace();
         }
-        return teamMembers;
+        return new ArrayList<>();
     }
     public void join(){
         maxClaims++;
@@ -86,49 +91,63 @@ public class TeamManager {
         save();
     }
     public void changeDisplayname(String displayName){
-        Text text = Text.empty();
-        try {
-            JsonElement element = new Gson().fromJson(displayName,JsonElement.class);
-            text = TextCodecs.CODEC.
-                    decode(JsonOps.INSTANCE,element)
-                    .getOrThrow()
-                    .getFirst();
-        }catch (Exception ignored){
+        try{
+            Text text = Text.empty();
+            try {
+                JsonElement element = new Gson().fromJson(displayName,JsonElement.class);
+                text = TextCodecs.CODEC.
+                        decode(JsonOps.INSTANCE,element)
+                        .getOrThrow()
+                        .getFirst();
+            }catch (Exception ignored){
 
+            }
+            this.displayName = text;
+        }catch (Throwable t){
+            t.printStackTrace();
         }
-        this.displayName = text;
     }
     public JsonObject serialize(){
-        JsonObject object = new JsonObject();
-        Gson gson = new GsonBuilder().setPrettyPrinting().create();
-        object.add("display_name",gson.toJsonTree(TextCodecs.CODEC.encodeStart(JsonOps.INSTANCE,displayName).getOrThrow()));
-        object.addProperty("uuid",this.owner.toString());
-        object.addProperty("maxClaims",maxClaims);
-        object.add("settings",this.settings.serialize());
-        return object;
+        try {
+            JsonObject object = new JsonObject();
+            Gson gson = new GsonBuilder().setPrettyPrinting().create();
+            object.add("display_name",gson.toJsonTree(TextCodecs.CODEC.encodeStart(JsonOps.INSTANCE,displayName).getOrThrow()));
+            object.addProperty("uuid",this.owner.toString());
+            object.addProperty("maxClaims",maxClaims);
+            object.add("settings",this.settings.serialize());
+            return object;
+        }catch (Throwable t){
+            t.printStackTrace();
+            return new JsonObject();
+        }
     }
     public static TeamManager deserialize(JsonObject object,String id){
-        Gson gson = new GsonBuilder().setPrettyPrinting().create();
-        Text displayName = TextCodecs.CODEC.
-                decode(JsonOps.INSTANCE,object.get("display_name"))
-                .getOrThrow()
-                .getFirst();
-        System.out.println("Amount of Banned Names: " + Config.BANNED_NAMES.size());
-        for (Config.StringConfig config : Config.BANNED_NAMES){
-            String s = config.get();
-            System.out.println("Checking for Banned Name: " + s);
-            if (displayName.getString().toLowerCase().contains(s.toLowerCase())){
-                displayName = Text.literal("§cBANNED NAME");
-                System.out.println("Found Banned Name: " + s);
-            }
+        try {
+            Gson gson = new GsonBuilder().setPrettyPrinting().create();
+            Text displayName = TextCodecs.CODEC.
+                    decode(JsonOps.INSTANCE,object.get("display_name"))
+                    .getOrThrow()
+                    .getFirst();
+            System.out.println("Amount of Banned Names: " + Config.BANNED_NAMES.size());
+            for (Config.StringConfig config : Config.BANNED_NAMES){
+                String s = config.get();
+                System.out.println("Checking for Banned Name: " + s);
+                if (displayName.getString().toLowerCase().contains(s.toLowerCase())){
+                    displayName = Text.literal("§cBANNED NAME");
+                    System.out.println("Found Banned Name: " + s);
+                }
 
+            }
+            UUID uuid = UUID.fromString(object.get("uuid").getAsString());
+            int maxClaims = object.get("maxClaims").getAsInt();
+            TeamManager manager = new TeamManager(displayName,id,uuid);
+            manager.settings.deserialize(object.get("settings"));
+            manager.maxClaims = maxClaims;
+            return manager;
+        }catch (Throwable t){
+            t.printStackTrace();
         }
-        UUID uuid = UUID.fromString(object.get("uuid").getAsString());
-        int maxClaims = object.get("maxClaims").getAsInt();
-        TeamManager manager = new TeamManager(displayName,id,uuid);
-        manager.settings.deserialize(object.get("settings"));
-        manager.maxClaims = maxClaims;
-        return manager;
+        return TeamManager.WILDERNESS;
     }
     static {
         TEAMSPATH = new File(FabricLoader.getInstance().getGameDir().toFile(),"neocraft");
@@ -136,26 +155,30 @@ public class TeamManager {
         load();
     }
     public static void load(){
-        Gson gson = new GsonBuilder().setPrettyPrinting().create();
-        if (TEAMSFILE.exists()){
-            try (FileReader reader = new FileReader(TEAMSFILE)){
-                JsonArray array = gson.fromJson(reader,JsonArray.class);
-                for (int i = 0; i<array.size(); i++){
-                    JsonObject object = array.get(i).getAsJsonObject();
-                    String name = object.get("name").getAsString();
-                    TeamManager manager = deserialize(object.get("team").getAsJsonObject(),name);
-                    TEAMS.put(name,manager);
+        try {
+            Gson gson = new GsonBuilder().setPrettyPrinting().create();
+            if (TEAMSFILE.exists()) {
+                try (FileReader reader = new FileReader(TEAMSFILE)) {
+                    JsonArray array = gson.fromJson(reader, JsonArray.class);
+                    for (int i = 0; i < array.size(); i++) {
+                        JsonObject object = array.get(i).getAsJsonObject();
+                        String name = object.get("name").getAsString();
+                        TeamManager manager = deserialize(object.get("team").getAsJsonObject(), name);
+                        TEAMS.put(name, manager);
+                    }
+                } catch (IOException e) {
+                    throw new RuntimeException(e);
                 }
-            } catch (IOException e) {
-                throw new RuntimeException(e);
+            } else {
+                boolean created = TEAMSPATH.mkdirs();
+                if (created) {
+                    System.out.println("Created Files");
+                }
             }
-        }else {
-            boolean created = TEAMSPATH.mkdirs();
-            if (created){
-                System.out.println("Created Files");
-            }
+            save();
+        }catch (Throwable t){
+            t.printStackTrace();
         }
-        save();
     }
 
     public static void save(){
@@ -176,15 +199,20 @@ public class TeamManager {
         }
     }
     public static Optional<TeamManager> create(String teamName, UUID owner){
-        if (TEAMS.containsKey(teamName)){
-            return Optional.empty();
-        }else {
-            TeamManager tm = new TeamManager(Text.literal(teamName),teamName,owner);
-            Optional<TeamManager> teamManager = Optional.of(tm);
-            TEAMS.put(teamName,tm);
-            save();
-            return teamManager;
+        try {
+            if (TEAMS.containsKey(teamName)){
+                return Optional.empty();
+            }else {
+                TeamManager tm = new TeamManager(Text.literal(teamName),teamName,owner);
+                Optional<TeamManager> teamManager = Optional.of(tm);
+                TEAMS.put(teamName,tm);
+                save();
+                return teamManager;
+            }
+        }catch (Throwable t){
+            t.printStackTrace();
         }
+        return Optional.empty();
     }
     public static void staticLoad(){
 
@@ -225,20 +253,31 @@ public class TeamManager {
         public boolean interact_entities = false;
         public Settings(){}
         public JsonElement serialize(){
-            JsonObject object = new JsonObject();
-            object.addProperty("interact_with_entities",interact_entities);
-            return object;
+            try {
+                JsonObject object = new JsonObject();
+                object.addProperty("interact_with_entities", interact_entities);
+                object.addProperty("friendly_fire", friendlyFire);
+                return object;
+            }catch (Throwable t){
+                t.printStackTrace();
+                return new JsonObject();
+            }
         }
         public void deserialize(JsonElement element){
-            JsonObject object = element.getAsJsonObject();
-            this.interact_entities = object.get("interact_with_entities").getAsBoolean();
+            try {
+                JsonObject object = element.getAsJsonObject();
+                this.interact_entities = object.get("interact_with_entities").getAsBoolean();
+                this.friendlyFire = object.get("friendly_fire").getAsBoolean();
+            }catch (Throwable t){
+                t.printStackTrace();
+            }
         }
     }
     public enum Setting{
         EVERYONE(Text.literal("Jeder"),0),
         ALLY(Text.literal("Verbündeter"),1),
         MEMBERS(Text.literal("Mitglieder"),2);
-        private static final IntFunction<Setting> BY_ID = ValueLists.createIdToValueFunction(Setting::getId, values(), ValueLists.OutOfBoundsHandling.WRAP);
+        private static final IntFunction<Setting> BY_ID = ValueLists.createIndexToValueFunction(Setting::getId, values(), ValueLists.OutOfBoundsHandling.WRAP);
         static {
         }
         Text text;
